@@ -2,11 +2,9 @@ import streamlit as st
 import requests
 
 # --- CONFIGURATION ---
-# Your provided Hugging Face Access Token
 HF_API_KEY = "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"
-# Using the Mistral model which is excellent for following instructions
 API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+headers_hf = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 CATEGORIES = [
     "Missing Folk", "Messed Up Families", "Don't Trust The Food", 
@@ -16,57 +14,53 @@ CATEGORIES = [
     "Political Thriller", "FemRage", "Weird Girl Fiction", "The Past Comes Back"
 ]
 
-# --- APP UI ---
 st.set_page_config(page_title="Book Genre Detective", page_icon="🕵️‍♀️")
 st.title("🕵️‍♀️ Book Genre Detective")
-st.write("Enter an ISBN to see which of your custom categories it belongs to.")
 
-isbn = st.text_input("Enter ISBN-13:", placeholder="e.g., 9781838855529")
+# --- STEP 1: CLEAN THE INPUT ---
+raw_isbn = st.text_input("Enter ISBN-13:", placeholder="9780141036144")
+isbn = raw_isbn.replace("-", "").replace(" ", "").strip()
 
 if isbn:
-    # 1. Lookup Book via Google Books (Free)
-    with st.spinner("Fetching book details..."):
-        google_url = f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}"
-        res = requests.get(google_url).json()
+    # --- STEP 2: THE "HUMAN" REQUEST ---
+    # We add 'headers' to pretend to be a real browser
+    browser_headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
     
-    if "items" in res:
-        info = res["items"][0]["volumeInfo"]
-        title = info.get('title', 'Unknown Title')
-        blurb = info.get("description", "No description available.")
-        st.subheader(f"Analyzing: {title}")
-        st.write(f"**Description:** {blurb[:300]}...") # Shows a snippet of the blurb
+    with st.spinner("Searching Google Books..."):
+        # We try two different URL formats to be safe
+        urls_to_try = [
+            f"https://www.googleapis.com/books/v1/volumes?q=isbn:{isbn}",
+            f"https://www.googleapis.com/books/v1/volumes?q={isbn}"
+        ]
+        
+        book_data = None
+        for url in urls_to_try:
+            res = requests.get(url, headers=browser_headers).json()
+            if "items" in res:
+                book_data = res["items"][0]["volumeInfo"]
+                break
+    
+    if book_data:
+        title = book_data.get('title', 'Unknown Title')
+        blurb = book_data.get("description", "No description available.")
+        
+        st.success(f"**Found:** {title}")
+        with st.expander("See Book Description"):
+            st.write(blurb)
 
-        # 2. Categorize via Hugging Face (Free)
-        with st.spinner("Classifying based on your categories..."):
-            # This specific prompt structure helps the AI "understand" your custom list
-            prompt = f"""<s>[INST] You are a book expert. Analyze this blurb: "{blurb}"
+        # --- STEP 3: AI CATEGORIZATION ---
+        with st.spinner("Analyzing with AI..."):
+            prompt = f"<s>[INST] Analyze this book: '{title}'. Blurb: '{blurb}' \nPick exactly TWO from: {CATEGORIES}. Format as PRIMARY: [Category], SECONDARY: [Category], WHY: [Explanation] [/INST]</s>"
             
-            Pick exactly TWO categories from this list: {', '.join(CATEGORIES)}.
-            
-            Format your response exactly like this:
-            PRIMARY: [Category]
-            SECONDARY: [Category]
-            WHY: [Short explanation] [/INST]</s>"""
-            
-            payload = {
-                "inputs": prompt,
-                "parameters": {"max_new_tokens": 200, "return_full_text": False}
-            }
-            
-            response = requests.post(API_URL, headers=headers, json=payload)
+            payload = {"inputs": prompt, "parameters": {"max_new_tokens": 250, "return_full_text": False}}
+            response = requests.post(API_URL, headers=headers_hf, json=payload)
             
             if response.status_code == 200:
-                result = response.json()[0]['generated_text']
-                st.success("Analysis Complete!")
-                st.markdown("---")
-                st.write(result)
+                st.markdown("### 🏷️ Results")
+                st.write(response.json()[0]['generated_text'])
             elif response.status_code == 503:
-                st.warning("The AI model is currently 'loading' on Hugging Face. This happens with free accounts. Please wait 20 seconds and try again!")
-            else:
-                st.error(f"Error: {response.status_code}")
+                st.warning("AI is waking up... give it 10 seconds and try again!")
     else:
-        st.error("ISBN not found. Please check the number and try again.")
-
-# --- FOOTER ---
-st.markdown("---")
-st.caption("Powered by Google Books and Hugging Face Mistral-7B")
+        st.error(f"Google Books couldn't find ISBN: {isbn}. Try a different one!")
