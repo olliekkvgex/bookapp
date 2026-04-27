@@ -16,7 +16,7 @@ CATEGORIES = [
 
 st.set_page_config(page_title="Book Genre Detective", page_icon="🕵️‍♀️")
 st.title("🕵️‍♀️ Book Genre Detective")
-st.write("Using Open Library (Unstoppable Version)")
+st.write("Using Open Library")
 
 # --- STEP 1: CLEAN THE INPUT ---
 raw_isbn = st.text_input("Enter ISBN-13:", placeholder="9780141036144")
@@ -24,18 +24,25 @@ isbn = raw_isbn.replace("-", "").replace(" ", "").strip()
 
 if isbn:
     with st.spinner("Searching Open Library..."):
-        # Open Library API is much more friendly to Streamlit
         ol_url = f"https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data"
         res = requests.get(ol_url).json()
         
-    # Open Library returns data in a slightly different format
     book_key = f"ISBN:{isbn}"
     if book_key in res:
         book_data = res[book_key]
         title = book_data.get('title', 'Unknown Title')
         
-        # Open Library doesn't always have a full blurb, so we grab subjects too
-        subjects = ", ".join(book_data.get('subjects', [item['name'] for item in book_data.get('subjects', [])])[:5])
+        # --- FIXED SUBJECTS LOGIC ---
+        # This part was causing the crash. We now carefully extract the names.
+        raw_subjects = book_data.get('subjects', [])
+        subject_names = []
+        for s in raw_subjects:
+            if isinstance(s, dict):
+                subject_names.append(s.get('name', ''))
+            else:
+                subject_names.append(str(s))
+        
+        clean_subjects = ", ".join(subject_names[:10])
         
         st.success(f"**Found:** {title}")
         if 'cover' in book_data:
@@ -43,9 +50,8 @@ if isbn:
 
         # --- STEP 2: AI CATEGORIZATION ---
         with st.spinner("Analyzing with AI..."):
-            # We give the AI the Title and Subjects to help it categorize
             prompt = f"""<s>[INST] Analyze this book: '{title}'. 
-            Themes/Subjects: {subjects}
+            Themes: {clean_subjects}
             
             Pick exactly TWO from: {CATEGORIES}. 
             Format as:
@@ -61,5 +67,7 @@ if isbn:
                 st.write(response.json()[0]['generated_text'])
             elif response.status_code == 503:
                 st.warning("AI is waking up... wait 10 seconds and try again!")
+            else:
+                st.error(f"AI Error: {response.status_code}")
     else:
-        st.error(f"Could not find ISBN: {isbn} in Open Library. Try another!")
+        st.error(f"Could not find ISBN: {isbn} in Open Library.")
