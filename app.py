@@ -4,8 +4,8 @@ import time
 
 # --- CONFIGURATION ---
 HF_API_KEY = "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"
-# Meta Llama 3 8B - Usually the most stable free model on HF
-API_URL = "https://api-inference.huggingface.co/models/meta-llama/Meta-Llama-3-8B-Instruct"
+# SWITCHED TO GOOGLE GEMMA 2: Open access, no gating, high stability
+API_URL = "https://api-inference.huggingface.co/models/google/gemma-2-9b-it"
 headers_hf = {"Authorization": f"Bearer {HF_API_KEY}"}
 
 CATEGORIES = [
@@ -18,7 +18,7 @@ CATEGORIES = [
 
 st.set_page_config(page_title="Book Genre Detective", page_icon="🕵️‍♀️")
 st.title("🕵️‍♀️ Book Genre Detective")
-st.write("Using Meta Llama 3 AI")
+st.write("Using Google Gemma 2 AI")
 
 # --- STEP 1: ISBN INPUT ---
 raw_isbn = st.text_input("Enter ISBN-13:", placeholder="9780141036144")
@@ -43,38 +43,29 @@ if isbn:
         if 'cover' in book_data:
             st.image(book_data['cover'].get('medium', ''))
 
-        # --- STEP 2: LLAMA 3 AI CATEGORIZATION ---
+        # --- STEP 2: AI CATEGORIZATION ---
         st.markdown("### 🏷️ AI Classification")
-        with st.spinner("Analyzing with Llama 3..."):
-            # Llama 3 specific instruction format (the <|tags|>)
-            prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-            You are a book categorization expert. You must pick TWO categories from this list: {CATEGORIES}.<|eot_id|>
-            <|start_header_id|>user<|end_header_id|>
-            Analyze the book '{title}' with these themes: {clean_subjects}. 
-            Format your response as:
-            PRIMARY: [Category]
-            SECONDARY: [Category]
-            WHY: [Brief reason]
-            <|eot_id|><|start_header_id|>assistant<|end_header_id|>"""
+        with st.spinner("Analyzing with AI..."):
+            # Gemma 2 specific prompt format
+            prompt = f"<start_of_turn>user\nYou are a book expert. Analyze the book '{title}' with themes '{clean_subjects}'. \nPick exactly TWO categories from this list: {CATEGORIES}. \nFormat your response as:\nPRIMARY: [Category]\nSECONDARY: [Category]\nWHY: [Brief reason]<end_of_turn>\n<start_of_turn>model\n"
             
-            payload = {"inputs": prompt, "parameters": {"max_new_tokens": 200, "return_full_text": False}}
+            payload = {"inputs": prompt, "parameters": {"max_new_tokens": 250, "return_full_text": False}}
             
             for attempt in range(3):
                 response = requests.post(API_URL, headers=headers_hf, json=payload)
                 if response.status_code == 200:
-                    # Llama 3 response cleaning
                     result = response.json()[0]['generated_text'].strip()
                     st.info(result)
                     break
                 elif response.status_code == 503:
-                    st.warning(f"Llama 3 is loading (Attempt {attempt+1}/3)... 20s wait.")
+                    st.warning(f"AI is waking up (Attempt {attempt+1}/3)... waiting 20s.")
                     time.sleep(20) 
                 else:
-                    st.error(f"Error {response.status_code}: Model might be private or address moved.")
+                    st.error(f"Error {response.status_code}: Please check your Hugging Face token permissions.")
                     st.code(response.text)
                     break
     else:
         st.error(f"Could not find ISBN: {isbn}")
 
 st.markdown("---")
-st.caption("Powered by Open Library & Meta Llama 3")
+st.caption("Powered by Open Library & Google Gemma 2")
